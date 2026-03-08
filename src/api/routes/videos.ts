@@ -3,7 +3,7 @@ import _ from 'lodash';
 import Request from '@/lib/request/Request.ts';
 import Response from '@/lib/response/Response.ts';
 import { tokenSplit } from '@/api/controllers/core.ts';
-import { generateVideo, generateSeedanceVideo, isSeedanceModel, DEFAULT_MODEL } from '@/api/controllers/videos.ts';
+import { generateVideo, generateSeedanceVideo, isSeedanceModel, DEFAULT_MODEL, queryVideoStatus } from '@/api/controllers/videos.ts';
 import util from '@/lib/util.ts';
 
 export default {
@@ -109,8 +109,8 @@ export default {
 
             // 根据response_format返回不同格式的结果
             if (response_format === "b64_json") {
-                // 获取视频内容并转换为BASE64
-                const videoBase64 = await util.fetchFileBASE64(videoUrl);
+                // 【修复】：防止报错，加上 .video_url 兜底
+                const videoBase64 = await util.fetchFileBASE64(videoUrl.video_url || "");
                 return {
                     created: util.unixTimestamp(),
                     data: [{
@@ -119,17 +119,31 @@ export default {
                     }]
                 };
             } else {
-                // 默认返回URL
+                // 默认返回修改：返回 task_id 和 status
                 return {
                     created: util.unixTimestamp(),
                     data: [{
-                        url: videoUrl,
+                        task_id: videoUrl.task_id,
+                        status: videoUrl.status,
                         revised_prompt: prompt
                     }]
                 };
             }
-        }
+        } // 结束 '/generations' 路由
 
+    }, // <--- 【极其重要】这里必须是一个逗号！不能是大括号！用来分隔 post 和 get
+
+    get: {
+        // 新增：供 n8n 轮询查询视频进度的专属路由
+        '/status/:id': async (request: Request) => {
+            request.validate('headers.authorization', _.isString);
+            const id = request.params.id;
+            const tokens = tokenSplit(request.headers.authorization);
+            const token = _.sample(tokens);
+
+            const statusInfo = await queryVideoStatus(id, token);
+            return statusInfo;
+        }
     }
 
-}
+} // 这是整个 export default 的结束括号
